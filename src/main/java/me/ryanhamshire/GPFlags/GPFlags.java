@@ -48,6 +48,11 @@ public class GPFlags extends JavaPlugin {
         } catch (ClassNotFoundException ignored) {}
 
         try {
+            Class.forName("com.destroystokyo.paper.event.entity.PreCreatureSpawnEvent");
+            Bukkit.getPluginManager().registerEvents(new me.ryanhamshire.GPFlags.listener.SpawnAttemptListener(), this);
+        } catch (ClassNotFoundException ignored) {}
+
+        try {
             Class.forName("me.ryanhamshire.GriefPrevention.events.ClaimResizeEvent");
             Bukkit.getPluginManager().registerEvents(new ClaimResizeListener(), this);
         } catch (ClassNotFoundException e) {
