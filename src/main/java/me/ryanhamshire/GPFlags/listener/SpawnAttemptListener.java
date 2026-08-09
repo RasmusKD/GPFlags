@@ -15,9 +15,12 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason;
 
+import java.util.Locale;
+
 /**
- * Cancels natural spawns in NoMobSpawns/NoMonsterSpawns areas before the server builds
- * the entity, instead of after.
+ * Cancels natural spawns in flagged areas before the server builds the entity,
+ * instead of after. Covers NoMobSpawns, NoMonsterSpawns, NoMonsters, NoMobSpawnsType
+ * and SpawnReasonWhitelist.
  *
  * The CreatureSpawnEvent handlers on the flag definitions fire at the very end of the
  * spawn pipeline: the server has already picked a position, checked blocks and light,
@@ -35,8 +38,7 @@ import org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason;
  *
  * Only NATURAL spawns are handled here. Everything else (spawners, breeding, slime
  * splits and so on) still goes through the existing CreatureSpawnEvent handlers, so
- * flag semantics for those reasons are unchanged. The type specific flags such as
- * NoMobSpawnsType are also left to the existing handlers.
+ * flag semantics for those reasons are unchanged.
  */
 public class SpawnAttemptListener implements Listener {
 
@@ -48,9 +50,32 @@ public class SpawnAttemptListener implements Listener {
         FlagManager flagManager = GPFlags.getInstance().getFlagManager();
         Claim claim = GriefPrevention.instance.dataStore.getClaimAt(location, false, false, null);
 
+        // Spawn cycles run per mob category, so aborting is safe whenever this flag
+        // blocks every type the current category could produce: NoMobSpawns blocks
+        // everything, the monster flags block the whole monster category, and a
+        // whitelist without NATURAL blocks all natural spawns. NoMobSpawnsType only
+        // blocks listed types, so other types in the same category must keep their
+        // remaining attempts and it never aborts.
+        boolean abortAllowed = true;
         Flag flag = flagManager.getEffectiveFlag(location, "NoMobSpawns", claim);
         if (flag == null && isMonsterType(event.getType())) {
             flag = flagManager.getEffectiveFlag(location, "NoMonsterSpawns", claim);
+            if (flag == null) {
+                flag = flagManager.getEffectiveFlag(location, "NoMonsters", claim);
+            }
+        }
+        if (flag == null) {
+            Flag typeFlag = flagManager.getEffectiveFlag(location, "NoMobSpawnsType", claim);
+            if (typeFlag != null && isListedType(event.getType(), typeFlag)) {
+                flag = typeFlag;
+                abortAllowed = false;
+            }
+        }
+        if (flag == null) {
+            Flag whitelist = flagManager.getEffectiveFlag(location, "SpawnReasonWhitelist", claim);
+            if (whitelist != null && whitelistBlocksNatural(whitelist)) {
+                flag = whitelist;
+            }
         }
         if (flag == null) return;
 
@@ -59,9 +84,31 @@ public class SpawnAttemptListener implements Listener {
         // No claim means the flag is set world wide or as a server default, so every
         // chunk is fully covered. Otherwise only abort when the whole chunk is inside
         // the claim, so spawns just outside a claim border behave exactly as before.
-        if (claim == null || containsWholeChunk(claim, location)) {
+        if (abortAllowed && (claim == null || containsWholeChunk(claim, location))) {
             event.setShouldAbortSpawn(true);
         }
+    }
+
+    /** Mirrors FlagDef_NoMobSpawnsType.isNotAllowed. */
+    private static boolean isListedType(EntityType type, Flag flag) {
+        for (String t : flag.parameters.split(";")) {
+            if (t.equalsIgnoreCase(type.toString())) return true;
+        }
+        return false;
+    }
+
+    /** Mirrors the loop in FlagDef_SpawnReasonWhitelist for a NATURAL spawn. */
+    private static boolean whitelistBlocksNatural(Flag flag) {
+        for (String string : flag.getParametersArray()) {
+            SpawnReason reason;
+            try {
+                reason = SpawnReason.valueOf(string.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ex) {
+                return false;
+            }
+            if (reason != SpawnReason.NATURAL) return true;
+        }
+        return false;
     }
 
     /** Mirrors Util.isMonster, but for an EntityType with no entity constructed yet. */
