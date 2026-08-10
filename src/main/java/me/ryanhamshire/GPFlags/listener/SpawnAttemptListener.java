@@ -8,6 +8,7 @@ import me.ryanhamshire.GPFlags.GPFlagsConfig;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Monster;
 import org.bukkit.event.EventHandler;
@@ -32,11 +33,20 @@ import java.util.concurrent.ConcurrentHashMap;
  * 60 wasted spawn attempts per second around a single player.
  *
  * This listener intercepts Paper's PreCreatureSpawnEvent, which fires before the entity
- * is constructed. Cancelling at that stage also makes the server end the remaining
- * spawn attempts for the chunk in that cycle, so the retry pressure disappears as
- * well: measured on a test server with a world wide flag, the attempt rate collapsed
- * from about 75000 attempts per second to about 60 per second, with no entities
- * constructed at all.
+ * is constructed, so the placement checks, the entity construction and finalizeSpawn
+ * are all skipped for a spawn that was going to be refused anyway.
+ *
+ * Cancelling does NOT end the chunk's remaining attempts on its own. Only
+ * setShouldAbortSpawn(true) makes the spawner return early; a plain cancel falls
+ * through to the next candidate position exactly like a failed placement check.
+ *
+ * Note for anyone tuning this: on Paper with per-player-mob-spawns enabled (the
+ * default) every cancelled pre spawn is charged to a per player mob backoff counter
+ * that is added to the mob cap of every player within tick view distance and bleeds
+ * off one per spawn cycle. A large flagged area can therefore hold that budget down
+ * and suppress spawning in nearby chunks that allow mobs. Set
+ * "Cancel Natural Spawns Before Entity Creation" to false to turn this listener off
+ * on servers where that matters.
  *
  * Only NATURAL spawns are handled here. Everything else (spawners, breeding, slime
  * splits and so on) still goes through the existing CreatureSpawnEvent handlers, so
@@ -51,7 +61,15 @@ public class SpawnAttemptListener implements Listener {
 
         Location location = event.getSpawnLocation();
         FlagManager flagManager = GPFlags.getInstance().getFlagManager();
-        Claim claim = GriefPrevention.instance.dataStore.getClaimAt(location, false, false, null);
+        // Paper fires this event for every candidate position, before the light,
+        // block and collision checks, so it runs far more often than
+        // CreatureSpawnEvent did. Skip the claim lookup entirely where claims cannot
+        // apply: getEffectiveFlag ignores claim, parent and default scope in a world
+        // with claims disabled and consults only world and server scope, which do not
+        // need a claim.
+        Claim claim = GriefPrevention.instance.claimsEnabledForWorld(location.getWorld())
+                ? GriefPrevention.instance.dataStore.getClaimAt(location, false, false, null)
+                : null;
 
         Flag flag = flagManager.getEffectiveFlag(location, "NoMobSpawns", claim);
         if (flag == null && isMonsterType(event.getType())) {
@@ -74,7 +92,29 @@ public class SpawnAttemptListener implements Listener {
         }
         if (flag == null) return;
 
+        // Only pre cancel when the WHOLE chunk is covered, and then abort it.
+        //
+        // Paper charges every cancelled PreCreatureSpawnEvent to a per player mob
+        // backoff counter (see the per player mob count backoff patch): the count is
+        // added to the mob cap of every player within tick view distance and bleeds
+        // off at one per category per spawn cycle. That cap is per PLAYER, not per
+        // area, so cancelling here suppresses spawning in every chunk near that
+        // player, including neighbouring claims that allow mobs.
+        //
+        // Aborting is charged once and then ends the chunk's remaining attempts for
+        // this cycle, where a plain cancel is charged again for every candidate
+        // position in the chunk. A chunk that lies entirely inside the flagged area
+        // has nothing legal to spawn anyway, so ending it early costs nothing.
+        //
+        // A chunk that only partly overlaps the claim keeps the old behaviour and is
+        // left to the CreatureSpawnEvent handlers on the flag definitions. That is
+        // more expensive per spawn, but it charges no backoff, so the positions in
+        // that chunk which ARE allowed keep spawning normally, and so do the
+        // player's other chunks.
+        if (claim != null && !containsWholeChunk(claim, location)) return;
+
         event.setCancelled(true);
+        event.setShouldAbortSpawn(true);
         if (GPFlagsConfig.LOG_PRE_SPAWN_CANCELS) logCancel(flag, claim, event, location);
     }
 
@@ -98,6 +138,22 @@ public class SpawnAttemptListener implements Listener {
         COUNTS.forEach((k, v) -> sb.append("\n  ").append(v).append("x ").append(k));
         COUNTS.clear();
         GPFlags.getInstance().getLogger().info(sb.toString());
+    }
+
+    /**
+     * Whether the 16x16 chunk containing this location lies entirely inside the claim.
+     * Claims are arbitrary rectangles rather than chunk aligned, so a chunk on a claim
+     * border contains positions the flag does not cover.
+     */
+    private static boolean containsWholeChunk(Claim claim, Location location) {
+        World world = location.getWorld();
+        int minX = (location.getBlockX() >> 4) << 4;
+        int minZ = (location.getBlockZ() >> 4) << 4;
+        int y = location.getBlockY();
+        return claim.contains(new Location(world, minX, y, minZ), true, false)
+                && claim.contains(new Location(world, minX + 15, y, minZ), true, false)
+                && claim.contains(new Location(world, minX, y, minZ + 15), true, false)
+                && claim.contains(new Location(world, minX + 15, y, minZ + 15), true, false);
     }
 
     /** Mirrors FlagDef_NoMobSpawnsType.isNotAllowed. */
