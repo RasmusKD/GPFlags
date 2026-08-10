@@ -4,6 +4,7 @@ import com.destroystokyo.paper.event.entity.PreCreatureSpawnEvent;
 import me.ryanhamshire.GPFlags.Flag;
 import me.ryanhamshire.GPFlags.FlagManager;
 import me.ryanhamshire.GPFlags.GPFlags;
+import me.ryanhamshire.GPFlags.GPFlagsConfig;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import org.bukkit.Location;
@@ -15,6 +16,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason;
 
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Cancels natural spawns in flagged areas before the server builds the entity,
@@ -43,6 +46,7 @@ public class SpawnAttemptListener implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPreSpawn(PreCreatureSpawnEvent event) {
+        if (!GPFlagsConfig.PRE_SPAWN_CANCEL) return;
         if (event.getReason() != SpawnReason.NATURAL) return;
 
         Location location = event.getSpawnLocation();
@@ -71,6 +75,29 @@ public class SpawnAttemptListener implements Listener {
         if (flag == null) return;
 
         event.setCancelled(true);
+        if (GPFlagsConfig.LOG_PRE_SPAWN_CANCELS) logCancel(flag, claim, event, location);
+    }
+
+    // Diagnostics. One aggregated line per 10 seconds, because this path runs
+    // tens of thousands of times a second and a line per cancel would drown the
+    // console and cost more than the spawn it prevented.
+    private static final Map<String, Long> COUNTS = new ConcurrentHashMap<>();
+    private static volatile long nextReport;
+
+    private static void logCancel(Flag flag, Claim claim, PreCreatureSpawnEvent event, Location location) {
+        String key = flag.getFlagDefinition().getName()
+                + " claim=" + (claim == null ? "none(world/server flag)" : String.valueOf(claim.getID()))
+                + " world=" + (location.getWorld() == null ? "?" : location.getWorld().getName())
+                + " type=" + event.getType();
+        COUNTS.merge(key, 1L, Long::sum);
+
+        long now = System.currentTimeMillis();
+        if (now < nextReport) return;
+        nextReport = now + 10_000L;
+        StringBuilder sb = new StringBuilder("[GPFlags] pre-spawn cancels (last 10s):");
+        COUNTS.forEach((k, v) -> sb.append("\n  ").append(v).append("x ").append(k));
+        COUNTS.clear();
+        GPFlags.getInstance().getLogger().info(sb.toString());
     }
 
     /** Mirrors FlagDef_NoMobSpawnsType.isNotAllowed. */
