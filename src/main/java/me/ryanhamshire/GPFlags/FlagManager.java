@@ -133,7 +133,15 @@ public class FlagManager {
         }
 
         String key = def.getName().toLowerCase();
-        if (!claimFlags.containsKey(key) && isActive) {
+        // Count an instance whenever an ACTIVE flag replaces something that was
+        // not already active. Keying on containsKey alone missed the unset to set
+        // transition: unSetFlag stores a set=false placeholder when the flag was
+        // absent, so the key exists, and setting the flag afterwards skipped
+        // incrementInstances. Since incrementInstances is what registers the
+        // definition's event listener, such a flag showed as set, saved as set,
+        // and did nothing until the next restart reloaded it from disk.
+        Flag existing = claimFlags.get(key);
+        if (isActive && (existing == null || !existing.getSet())) {
             def.incrementInstances();
         }
         claimFlags.put(key, flag);
