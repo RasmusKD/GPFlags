@@ -50,6 +50,7 @@ public class GPFlags extends JavaPlugin {
         try {
             Class.forName("com.destroystokyo.paper.event.entity.PreCreatureSpawnEvent");
             Bukkit.getPluginManager().registerEvents(new me.ryanhamshire.GPFlags.listener.SpawnAttemptListener(), this);
+            me.ryanhamshire.GPFlags.listener.MobBackoffClearer.startIfEnabled(this);
         } catch (ClassNotFoundException ignored) {}
 
         try {

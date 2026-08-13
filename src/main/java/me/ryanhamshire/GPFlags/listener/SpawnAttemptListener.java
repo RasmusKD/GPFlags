@@ -111,10 +111,13 @@ public class SpawnAttemptListener implements Listener {
         // more expensive per spawn, but it charges no backoff, so the positions in
         // that chunk which ARE allowed keep spawning normally, and so do the
         // player's other chunks.
-        if (claim != null && !containsWholeChunk(claim, location)) return;
-
-        event.setCancelled(true);
-        event.setShouldAbortSpawn(true);
+        if (GPFlagsConfig.PRE_SPAWN_ABORT_CHUNK) {
+            if (claim != null && !containsWholeChunk(claim, location)) return;
+            event.setCancelled(true);
+            event.setShouldAbortSpawn(true);
+        } else {
+            event.setCancelled(true);
+        }
         if (GPFlagsConfig.LOG_PRE_SPAWN_CANCELS) logCancel(flag, claim, event, location);
     }
 

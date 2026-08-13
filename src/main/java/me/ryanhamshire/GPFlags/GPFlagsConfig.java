@@ -35,6 +35,31 @@ public class GPFlagsConfig {
     public static boolean PRE_SPAWN_CANCEL = true;
     /** Logs one summary line per 10s naming what the pre spawn listener cancelled. */
     public static boolean LOG_PRE_SPAWN_CANCELS = false;
+    /**
+     * Whether a pre spawn cancel also aborts the chunk's remaining attempts for that
+     * cycle. Read per spawn, so it can be compared against plain cancelling on a live
+     * server with gpflags reload rather than a restart, which would reset Paper's
+     * per player mob backoff counters and invalidate the comparison.
+     */
+    public static boolean PRE_SPAWN_ABORT_CHUNK = true;
+    /**
+     * Whether to clear Paper's per player mob spawn backoff each tick.
+     *
+     * Paper charges every cancelled PreCreatureSpawnEvent to a counter that is added to
+     * the mob cap of every player within simulation distance. That counter does not care
+     * whose land denied the spawn, so a player standing in a claim that ALLOWS mobs can
+     * have their cap eaten by the flagged claims around them, and on a server with a low
+     * spawn-limits.monsters it takes very little to push them over. Measured on a test
+     * server with the limit at 18: a player with 5 real mobs was counted as 25, and
+     * spawning stopped completely.
+     *
+     * Clearing it restores the spawn rate the server had before the pre spawn listener
+     * existed, while keeping the saving the listener was written for, because the
+     * expensive part was never the attempt, it was building an entity and throwing it
+     * away. Left off by default: it reaches into server internals, and a server that
+     * does not run flagged claims next to farms does not need it.
+     */
+    public static boolean CLEAR_MOB_SPAWN_BACKOFF = false;
 
     public GPFlagsConfig(GPFlags plugin) {
         this.plugin = plugin;
@@ -57,6 +82,12 @@ public class GPFlagsConfig {
 
         LOG_PRE_SPAWN_CANCELS = inConfig.getBoolean("Settings.Log Pre-Spawn Cancels", false);
         outConfig.set("Settings.Log Pre-Spawn Cancels", LOG_PRE_SPAWN_CANCELS);
+
+        PRE_SPAWN_ABORT_CHUNK = inConfig.getBoolean("Settings.Abort Chunk On Pre-Spawn Cancel", true);
+        outConfig.set("Settings.Abort Chunk On Pre-Spawn Cancel", PRE_SPAWN_ABORT_CHUNK);
+
+        CLEAR_MOB_SPAWN_BACKOFF = inConfig.getBoolean("Settings.Clear Paper Mob Spawn Backoff", false);
+        outConfig.set("Settings.Clear Paper Mob Spawn Backoff", CLEAR_MOB_SPAWN_BACKOFF);
 
         List<World> worlds = plugin.getServer().getWorlds();
         ArrayList<String> worldSettingsKeys = new ArrayList<>();
