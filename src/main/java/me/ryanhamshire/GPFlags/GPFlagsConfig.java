@@ -42,6 +42,25 @@ public class GPFlagsConfig {
      * per player mob backoff counters and invalidate the comparison.
      */
     public static boolean PRE_SPAWN_ABORT_CHUNK = true;
+    /**
+     * Whether to clear Paper's per player mob spawn backoff each tick.
+     *
+     * Paper charges every cancelled PreCreatureSpawnEvent to a counter that is added to
+     * the mob cap of every player within simulation distance. That counter does not care
+     * whose land denied the spawn, so a player standing in a claim that ALLOWS mobs can
+     * have their cap eaten by the flagged claims around them, and on a server with a low
+     * spawn-limits.monsters it takes very little to push them over. Measured on a test
+     * server with the limit at 18: a player with 5 real mobs was counted as 25, and
+     * spawning stopped completely.
+     *
+     * Clearing it restores the spawn rate the server had before the pre spawn listener
+     * existed, while keeping the saving the listener was written for, because the
+     * expensive part was never the attempt, it was building an entity and throwing it
+     * away. On by default, because without it the listener costs players their spawns.
+     * It reaches into server internals, so it degrades to doing nothing and says so
+     * once if the field is not where it expects.
+     */
+    public static boolean CLEAR_MOB_SPAWN_BACKOFF = true;
 
     public GPFlagsConfig(GPFlags plugin) {
         this.plugin = plugin;
@@ -67,6 +86,9 @@ public class GPFlagsConfig {
 
         PRE_SPAWN_ABORT_CHUNK = inConfig.getBoolean("Settings.Abort Chunk On Pre-Spawn Cancel", true);
         outConfig.set("Settings.Abort Chunk On Pre-Spawn Cancel", PRE_SPAWN_ABORT_CHUNK);
+
+        CLEAR_MOB_SPAWN_BACKOFF = inConfig.getBoolean("Settings.Clear Paper Mob Spawn Backoff", true);
+        outConfig.set("Settings.Clear Paper Mob Spawn Backoff", CLEAR_MOB_SPAWN_BACKOFF);
 
         List<World> worlds = plugin.getServer().getWorlds();
         ArrayList<String> worldSettingsKeys = new ArrayList<>();
