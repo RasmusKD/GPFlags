@@ -27,6 +27,21 @@ public class GPFlagsConfig {
     private final FlagManager flagManager;
 
     public static boolean LOG_ENTER_EXIT_COMMANDS = true;
+    /**
+     * Whether flagged natural spawns are cancelled before the entity is built.
+     * Read at spawn time rather than at registration, so /gpflags reload turns
+     * it on and off on a live server without a restart.
+     */
+    public static boolean PRE_SPAWN_CANCEL = true;
+    /** Logs one summary line per 10s naming what the pre spawn listener cancelled. */
+    public static boolean LOG_PRE_SPAWN_CANCELS = false;
+    /**
+     * Whether a pre spawn cancel also aborts the chunk's remaining attempts for that
+     * cycle. Read per spawn, so it can be compared against plain cancelling on a live
+     * server with gpflags reload rather than a restart, which would reset Paper's
+     * per player mob backoff counters and invalidate the comparison.
+     */
+    public static boolean PRE_SPAWN_ABORT_CHUNK = true;
 
     public GPFlagsConfig(GPFlags plugin) {
         this.plugin = plugin;
@@ -43,6 +58,15 @@ public class GPFlagsConfig {
 
         LOG_ENTER_EXIT_COMMANDS = inConfig.getBoolean("Settings.Log Enter/Exit Messages To Console", true);
         outConfig.set("Settings.Log Enter/Exit Messages To Console", LOG_ENTER_EXIT_COMMANDS);
+
+        PRE_SPAWN_CANCEL = inConfig.getBoolean("Settings.Cancel Natural Spawns Before Entity Creation", true);
+        outConfig.set("Settings.Cancel Natural Spawns Before Entity Creation", PRE_SPAWN_CANCEL);
+
+        LOG_PRE_SPAWN_CANCELS = inConfig.getBoolean("Settings.Log Pre-Spawn Cancels", false);
+        outConfig.set("Settings.Log Pre-Spawn Cancels", LOG_PRE_SPAWN_CANCELS);
+
+        PRE_SPAWN_ABORT_CHUNK = inConfig.getBoolean("Settings.Abort Chunk On Pre-Spawn Cancel", true);
+        outConfig.set("Settings.Abort Chunk On Pre-Spawn Cancel", PRE_SPAWN_ABORT_CHUNK);
 
         List<World> worlds = plugin.getServer().getWorlds();
         ArrayList<String> worldSettingsKeys = new ArrayList<>();
